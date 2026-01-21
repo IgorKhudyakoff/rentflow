@@ -26,6 +26,7 @@ class ObligationStatus(models.TextChoices):
     PLANNED = "PLANNED", "Запланировано"
     DUE = "DUE", "Срок сегодня"
     OVERDUE = "OVERDUE", "Просрочено"
+    PARTIAL = "PARTIAL", "Частично оплачено"
     PAID_BY_TENANT = "PAID_BY_TENANT", "Оплачено арендатором"
     CLOSED = "CLOSED", "Закрыто"
     DISPUTED = "DISPUTED", "Спор"
