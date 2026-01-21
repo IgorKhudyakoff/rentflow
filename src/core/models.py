@@ -213,3 +213,43 @@ class PaymentObligation(TimeStampedModel):
         else:
             self.status = ObligationStatus.OVERDUE
         self.save(update_fields=["status"])
+class PaymentReceipt(TimeStampedModel):
+    obligation = models.ForeignKey(
+        PaymentObligation,
+        on_delete=models.PROTECT,
+        related_name="receipts",
+        verbose_name="Обязательство",
+    )
+
+    received_at = models.DateTimeField(
+        "Дата и время получения",
+        auto_now_add=True,
+    )
+
+    amount_received = models.DecimalField(
+        "Получено денег",
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="0 — если денег не получено, но факт зафиксирован",
+    )
+
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        verbose_name="Кто зафиксировал",
+    )
+
+    comment = models.TextField(
+        "Комментарий",
+        blank=True,
+        default="",
+    )
+
+    class Meta:
+        verbose_name = "Факт получения денег"
+        verbose_name_plural = "Факты получения денег"
+
+    def __str__(self) -> str:
+        return f"{self.obligation} — получено {self.amount_received}"
