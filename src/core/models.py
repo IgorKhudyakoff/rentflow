@@ -142,7 +142,6 @@ class LeaseContract(TimeStampedModel):
     def get_effective_responsible_user(self):
         return self.responsible_user or self.property.responsible_user
 
-
 class PaymentObligation(TimeStampedModel):
     contract = models.ForeignKey(
         LeaseContract,
@@ -198,50 +197,47 @@ class PaymentObligation(TimeStampedModel):
             )
         ]
 
-    from django.db.models import Sum
+    def __str__(self) -> str:
+        p = self.contract.property.name
+        t = self.contract.tenant.name
+        return f"{p} / {t} — {self.period_month:02d}.{self.period_year} — {self.amount_due}"
 
+    def total_received(self) -> Decimal:
+        agg = self.receipts.aggregate(total=Sum("amount_received"))
+        return agg["total"] or Decimal("0.00")
 
-def __str__(self) -> str:
-    return f"{self.contract} — {self.period_month:02d}.{self.period_year} — {self.amount_due}"
+    def remaining_amount(self) -> Decimal:
+        remaining = self.amount_due - self.total_received()
+        return remaining if remaining > 0 else Decimal("0.00")
 
+    def recompute_status(self, today: date | None = None) -> None:
+        today = today or date.today()
 
-def total_received(self) -> Decimal:
-    agg = self.receipts.aggregate(total=Sum("amount_received"))
-    return agg["total"] or Decimal("0.00")
+        # Финальные статусы не трогаем
+        if self.status in {
+            ObligationStatus.CLOSED,
+            ObligationStatus.WRITTEN_OFF,
+        }:
+            return
 
+        received = self.total_received()
 
-def remaining_amount(self) -> Decimal:
-    remaining = self.amount_due - self.total_received()
-    return remaining if remaining > 0 else Decimal("0.00")
-
-
-def recompute_status(self, today: date | None = None) -> None:
-    today = today or date.today()
-
-    # Финальные статусы не трогаем
-    if self.status in {
-        ObligationStatus.CLOSED,
-        ObligationStatus.WRITTEN_OFF,
-    }:
-        return
-
-    received = self.total_received()
-
-    if self.amount_due > 0 and received >= self.amount_due:
-        new_status = ObligationStatus.PAID_BY_TENANT
-    elif received > 0:
-        new_status = ObligationStatus.PARTIAL
-    else:
-        if today < self.due_date:
-            new_status = ObligationStatus.PLANNED
-        elif today == self.due_date:
-            new_status = ObligationStatus.DUE
+        if self.amount_due > 0 and received >= self.amount_due:
+            new_status = ObligationStatus.PAID_BY_TENANT
+        elif received > 0:
+            new_status = ObligationStatus.PARTIAL
         else:
-            new_status = ObligationStatus.OVERDUE
+            if today < self.due_date:
+                new_status = ObligationStatus.PLANNED
+            elif today == self.due_date:
+                new_status = ObligationStatus.DUE
+            else:
+                new_status = ObligationStatus.OVERDUE
 
-    if new_status != self.status:
-        self.status = new_status
-        self.save(update_fields=["status"])
+        if new_status != self.status:
+            self.status = new_status
+            self.save(update_fields=["status"])
+
 
 class PaymentReceipt(TimeStampedModel):
     obligation = models.ForeignKey(
