@@ -43,3 +43,4 @@ class PaymentReceiptAdmin(admin.ModelAdmin):
         "obligation__contract__property__name",
         "obligation__contract__tenant__name",
     )
+    autocomplete_fields = ("obligation", "received_by")
