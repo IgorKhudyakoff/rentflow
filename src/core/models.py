@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-
+from django.db.models import Sum
 from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator
@@ -198,58 +198,47 @@ class PaymentObligation(TimeStampedModel):
             )
         ]
 
-    def __str__(self) -> str:
-        return f"{self.contract} — {self.period_month:02d}.{self.period_year} — {self.amount_due}"
+    from django.db.models import Sum
 
-    def recompute_status(self, today: date | None = None) -> None:
-        today = today or date.today()
-        if self.status in {ObligationStatus.CLOSED, ObligationStatus.PAID_BY_TENANT, ObligationStatus.WRITTEN_OFF}:
-            return
 
+def __str__(self) -> str:
+    return f"{self.contract} — {self.period_month:02d}.{self.period_year} — {self.amount_due}"
+
+
+def total_received(self) -> Decimal:
+    agg = self.receipts.aggregate(total=Sum("amount_received"))
+    return agg["total"] or Decimal("0.00")
+
+
+def remaining_amount(self) -> Decimal:
+    remaining = self.amount_due - self.total_received()
+    return remaining if remaining > 0 else Decimal("0.00")
+
+
+def recompute_status(self, today: date | None = None) -> None:
+    today = today or date.today()
+
+    # Финальные статусы не трогаем
+    if self.status in {
+        ObligationStatus.CLOSED,
+        ObligationStatus.WRITTEN_OFF,
+    }:
+        return
+
+    received = self.total_received()
+
+    if self.amount_due > 0 and received >= self.amount_due:
+        new_status = ObligationStatus.PAID_BY_TENANT
+    elif received > 0:
+        new_status = ObligationStatus.PARTIAL
+    else:
         if today < self.due_date:
-            self.status = ObligationStatus.PLANNED
+            new_status = ObligationStatus.PLANNED
         elif today == self.due_date:
-            self.status = ObligationStatus.DUE
+            new_status = ObligationStatus.DUE
         else:
-            self.status = ObligationStatus.OVERDUE
+            new_status = ObligationStatus.OVERDUE
+
+    if new_status != self.status:
+        self.status = new_status
         self.save(update_fields=["status"])
-class PaymentReceipt(TimeStampedModel):
-    obligation = models.ForeignKey(
-        PaymentObligation,
-        on_delete=models.PROTECT,
-        related_name="receipts",
-        verbose_name="Обязательство",
-    )
-
-    received_at = models.DateTimeField(
-        "Дата и время получения",
-        auto_now_add=True,
-    )
-
-    amount_received = models.DecimalField(
-        "Получено денег",
-        max_digits=12,
-        decimal_places=2,
-        default=Decimal("0.00"),
-        validators=[MinValueValidator(Decimal("0.00"))],
-        help_text="0 — если денег не получено, но факт зафиксирован",
-    )
-
-    received_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        verbose_name="Кто зафиксировал",
-    )
-
-    comment = models.TextField(
-        "Комментарий",
-        blank=True,
-        default="",
-    )
-
-    class Meta:
-        verbose_name = "Факт получения денег"
-        verbose_name_plural = "Факты получения денег"
-
-    def __str__(self) -> str:
-        return f"{self.obligation} — получено {self.amount_received}"
