@@ -6,7 +6,9 @@ from django.db.models import Sum
 from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator
+from django.utils import timezone
 
+from core.enums import ReceiptAccountingStatus
 from .enums import (
     PropertyStatus,
     PartyType,
@@ -258,20 +260,76 @@ class PaymentReceipt(TimeStampedModel):
         decimal_places=2,
         default=Decimal("0.00"),
         validators=[MinValueValidator(Decimal("0.00"))],
-        help_text="0 — если денег не получено, но факт зафиксирован",
+        help_text="0 — если денег не получено, но факт зафиксирован (например, звонок/обещание/ошибка).",
     )
 
     received_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         verbose_name="Кто зафиксировал",
+        related_name="payment_receipts_created",
+        help_text="Пользователь, который внёс запись в систему. Может отличаться от того, кто фактически принял деньги.",
     )
 
     comment = models.TextField("Комментарий", blank=True, default="")
 
+    # --- Контур передачи в бухгалтерию (двухсубъектное подтверждение) ---
+    accounting_status = models.CharField(
+        "Статус для бухгалтерии",
+        max_length=20,
+        choices=ReceiptAccountingStatus.choices,
+        default=ReceiptAccountingStatus.NOT_TRANSFERRED,
+        db_index=True,
+        help_text="Внутренний статус: передано в бухгалтерию → принято бухгалтерией. Не влияет на факт оплаты арендатора.",
+    )
+
+    transferred_at = models.DateTimeField(
+        "Дата передачи в бухгалтерию",
+        null=True,
+        blank=True,
+    )
+    transferred_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payment_receipts_transferred",
+        verbose_name="Кто передал в бухгалтерию",
+    )
+
+    accepted_at = models.DateTimeField(
+        "Дата принятия бухгалтерией",
+        null=True,
+        blank=True,
+    )
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payment_receipts_accepted",
+        verbose_name="Кто принял в бухгалтерии",
+    )
+
     class Meta:
         verbose_name = "Факт получения денег"
         verbose_name_plural = "Факты получения денег"
+        ordering = ("-received_at",)
+        indexes = [
+            models.Index(fields=["accounting_status"]),
+            models.Index(fields=["received_at"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.obligation} — получено {self.amount_received}"
+
+    # Методы для админских actions (чтобы логика не жила в admin.py)
+    def mark_transferred(self, user) -> None:
+        self.accounting_status = ReceiptAccountingStatus.TRANSFERRED
+        self.transferred_by = user
+        self.transferred_at = timezone.now()
+
+    def mark_accepted(self, user) -> None:
+        self.accounting_status = ReceiptAccountingStatus.ACCEPTED
+        self.accepted_by = user
+        self.accepted_at = timezone.now()

@@ -31,3 +31,10 @@ class ObligationStatus(models.TextChoices):
     CLOSED = "CLOSED", "Закрыто"
     DISPUTED = "DISPUTED", "Спор"
     WRITTEN_OFF = "WRITTEN_OFF", "Списано"
+
+
+class ReceiptAccountingStatus(models.TextChoices):
+    # Внутренний статус передачи денег в бухгалтерию (НЕ про оплату арендатора)
+    NOT_TRANSFERRED = "NOT_TRANSFERRED", "Не передано в бухгалтерию"
+    TRANSFERRED = "TRANSFERRED", "Передано в бухгалтерию"
+    ACCEPTED = "ACCEPTED", "Принято бухгалтерией"
